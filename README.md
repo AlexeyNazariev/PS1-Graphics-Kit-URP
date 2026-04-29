@@ -1,5 +1,7 @@
 🎮 PS1 Graphics Kit for Unity URP
 
+<img src="PS1-Graphics-Kit.gif" width="600">
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Unity](https://img.shields.io/badge/Unity-2021.3%2B-blue.svg)](https://unity.com/)
 [![Platform](https://img.shields.io/badge/Platform-Universal%20Render%20Pipeline-lightgrey.svg)](https://unity.com/render-pipelines/universal-render-pipeline)
@@ -7,8 +9,6 @@
 A comprehensive toolset designed to recreate the authentic retro-aesthetic of 32-bit era consoles (PS1 style) within Unity's Universal Render Pipeline (URP). This kit includes custom shaders with vertex jitter, a resolution-independent pixelization system, and an advanced billboard solution.
 
 ---
-
-<img src="PS1-Graphics-Kit.gif" width="600">
 
 🌟 Key Features
 
