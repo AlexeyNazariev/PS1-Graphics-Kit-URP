@@ -8,7 +8,7 @@ A comprehensive toolset designed to recreate the authentic retro-aesthetic of 32
 
 ---
 
-![PS1 Graphics Kit](PS1-Graphics-Kit.gif)
+<img src="PS1-Graphics-Kit.gif" width="600">
 
 🌟 Key Features
 
