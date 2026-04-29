@@ -8,6 +8,8 @@ A comprehensive toolset designed to recreate the authentic retro-aesthetic of 32
 
 ---
 
+![Uploading SpaceConflikt Alexey Nazariev.gif…]()
+
 🌟 Key Features
 
 ⚡ Vertex Jitter (Affine Mapping Simulation)
