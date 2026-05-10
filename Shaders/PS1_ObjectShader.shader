@@ -27,7 +27,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
         {
             float4 pos = positionCS;
             float2 ndc = pos.xy / pos.w;
-            ndc = floor(ndc * jitterRes) / jitterRes;
+            ndc = round(ndc * jitterRes) / jitterRes;
             pos.xy = ndc * pos.w;
             return pos;
         }
@@ -45,7 +45,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
         ENDHLSL
 
         // ==========================================
-        // ПРОХОД 1: Основной (Цвет + Получение теней)
+        // ПРОХОД 1: Основной (Цвет + Освещение)
         // ==========================================
         Pass
         {
@@ -56,13 +56,19 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
             #pragma vertex vert
             #pragma fragment frag
 
+            // Поддержка теней и дополнительных источников
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            #pragma multi_compile _ _ADDITIONAL_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT
+            #pragma multi_compile_fog
+
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                float3 normalOS : NORMAL;
                 float2 uv : TEXCOORD0;
             };
 
@@ -70,20 +76,26 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD1;
+                float3 normalWS : NORMAL;
                 float2 uv : TEXCOORD0;
+                float fogCoord : TEXCOORD4;
             };
 
             Varyings vert(Attributes input)
             {
                 Varyings output;
                 
-                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
-                output.positionCS = TransformWorldToHClip(output.positionWS);
+                VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
+                output.positionWS = vertexInput.positionWS;
+                output.positionCS = vertexInput.positionCS;
 
-                // МАГИЯ: Используем общую функцию дрожания
+                // МАГИЯ: Применяем дрожание
                 output.positionCS = ApplyJitter(output.positionCS, _JitterResolution);
 
+                output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
+                output.fogCoord = ComputeFogFactor(output.positionCS.z);
+                
                 return output;
             }
 
@@ -92,11 +104,36 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
                 half4 texColor = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
                 clip(texColor.a - _Cutoff);
 
+                float3 normalWS = normalize(input.normalWS);
                 float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
+                
+                // 1. Глобальный свет (Directional Light)
                 Light mainLight = GetMainLight(shadowCoord);
-                half shadowAttenuation = mainLight.shadowAttenuation;
+                half3 lighting = mainLight.color * (mainLight.distanceAttenuation * mainLight.shadowAttenuation);
+                half NdotL = saturate(dot(normalWS, mainLight.direction));
+                half3 finalLighting = lighting * NdotL;
 
-                half3 finalColor = texColor.rgb * _BaseColor.rgb * lerp(0.4, 1.0, shadowAttenuation);
+                // 2. Дополнительные источники (Point, Spot Lights)
+                #if defined(_ADDITIONAL_LIGHTS)
+                int pixelLightCount = GetAdditionalLightsCount();
+                for (int i = 0; i < pixelLightCount; ++i)
+                {
+                    Light light = GetAdditionalLight(i, input.positionWS, shadowCoord);
+                    half3 lightColor = light.color * (light.distanceAttenuation * light.shadowAttenuation);
+                    half NdotL_Add = saturate(dot(normalWS, light.direction));
+                    finalLighting += lightColor * NdotL_Add;
+                }
+                #endif
+
+                // 3. Ambient (Общий свет сцены / Skybox)
+                half3 ambient = SampleSH(normalWS);
+                finalLighting += ambient;
+
+                half3 finalColor = texColor.rgb * _BaseColor.rgb * finalLighting;
+                
+                // Применяем туман
+                finalColor = MixFog(finalColor, input.fogCoord);
+                
                 return half4(finalColor, 1.0);
             }
             ENDHLSL
@@ -136,9 +173,11 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
                 Varyings output;
                 float3 positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 float3 normalWS = TransformObjectToWorldNormal(input.normalOS);
+                
+                // Стандартный shadowBias без хаков
                 output.positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, _LightDirection));
 
-                // И здесь применяем ту же общую функцию дрожания!
+                // Применяем дрожание и к теням!
                 output.positionCS = ApplyJitter(output.positionCS, _JitterResolution);
 
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
@@ -185,7 +224,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
                 Varyings output;
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
 
-                // И здесь применяем общую функцию дрожания!
+                // Синхронизируем глубину с дрожанием
                 output.positionCS = ApplyJitter(output.positionCS, _JitterResolution);
 
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
@@ -202,7 +241,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
         }
 
         // ==========================================
-        // ПРОХОД 4: DepthNormals (Для карты нормалей)
+        // ПРОХОД 4: DepthNormals (Для SSAO)
         // ==========================================
         Pass
         {
@@ -224,7 +263,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
-                float3 normalWS : TEXCOORD1; // Нам нужны нормали в мире для этой карты
+                float3 normalWS : TEXCOORD1;
                 float2 uv : TEXCOORD0;
             };
 
@@ -234,7 +273,7 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
 
-                // И КРИТИЧЕСКИ ВАЖНО: Применяем дрожание к карте нормалей!
+                // Критично для SSAO: нормали должны дрожать вместе с геометрией
                 output.positionCS = ApplyJitter(output.positionCS, _JitterResolution);
 
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
@@ -246,7 +285,6 @@ Shader "Custom/PS1_Style_Lit_Alpha_Fixed"
                 half4 texColor = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv);
                 clip(texColor.a - _Cutoff);
                 
-                // Возвращаем нормаль, которая теперь синхронизирована с дрожащей геометрией
                 return float4(NormalizeNormalPerPixel(input.normalWS), 0.0);
             }
             ENDHLSL
