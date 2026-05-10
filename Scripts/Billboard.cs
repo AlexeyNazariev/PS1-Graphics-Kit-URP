@@ -10,6 +10,13 @@ public class Billboard : MonoBehaviour
     public bool useMainCamera = true;
     [Tooltip("If true, the object will only rotate around the Y axis (vertical)")]
     public bool lockYAxis = true;
+    [Tooltip("If true, the billboard will slightly tilt towards the camera when viewed from above")]
+    public bool allowVerticalTilt = true;
+    [Tooltip("How much the billboard tilts towards the camera (0.01 is a very subtle effect)")]
+    [Range(0f, 1f)]
+    public float verticalTilt = 0.01f;
+    [Tooltip("Maximum tilt angle in degrees")]
+    public float maxTiltAngle = 10f;
 
     [Header("Shadow Settings")]
     [Tooltip("If true, a shadow will be projected onto the ground")]
@@ -55,12 +62,39 @@ public class Billboard : MonoBehaviour
 
         if (target != null)
         {
-            Vector3 lookPos = target.position;
-            if (lockYAxis)
+            // Используем инвертированное направление, чтобы избежать отзеркаливания
+            Vector3 direction = transform.position - target.position; 
+            if (direction == Vector3.zero) return;
+
+            // 1. Считаем чисто вертикальный поворот (только по Y)
+            Vector3 horizontalDir = new Vector3(direction.x, 0, direction.z);
+            if (horizontalDir == Vector3.zero) horizontalDir = transform.forward;
+            Quaternion verticalRotation = Quaternion.LookRotation(horizontalDir);
+
+            if (lockYAxis && allowVerticalTilt)
             {
-                lookPos.y = transform.position.y;
+                // 2. Считаем полный поворот на камеру (сферический)
+                Quaternion fullRotation = Quaternion.LookRotation(direction);
+                
+                // 3. Смешиваем их согласно verticalTilt
+                Quaternion targetRotation = Quaternion.Slerp(verticalRotation, fullRotation, verticalTilt);
+                
+                // 4. Ограничиваем наклон в градусах
+                Vector3 euler = targetRotation.eulerAngles;
+                float angleX = euler.x;
+                if (angleX > 180) angleX -= 360; 
+                angleX = Mathf.Clamp(angleX, -maxTiltAngle, maxTiltAngle);
+                
+                transform.rotation = Quaternion.Euler(angleX, euler.y, euler.z);
             }
-            transform.LookAt(lookPos);
+            else if (lockYAxis)
+            {
+                transform.rotation = verticalRotation;
+            }
+            else
+            {
+                transform.rotation = Quaternion.LookRotation(direction);
+            }
         }
     }
 
